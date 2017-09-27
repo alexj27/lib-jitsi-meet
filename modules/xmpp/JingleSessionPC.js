@@ -2127,7 +2127,7 @@ export default class JingleSessionPC extends JingleSession {
                 logger.debug('Jingle error', error);
             } else {
                 GlobalOnErrorHandler.callErrorHandler(
-                    new Error(`Jingle error: ${JSON.stringify(error)}`));
+                    new Error(`Jingle error: ${error.message}`));
             }
         };
     }
