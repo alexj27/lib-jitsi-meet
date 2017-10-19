@@ -5,7 +5,7 @@ const GlobalOnErrorHandler = require('../util/GlobalOnErrorHandler');
 const logger = require('jitsi-meet-logger').getLogger(__filename);
 
 /* Whether we support the browser we are running into for logging statistics */
-const browserSupported = RTCBrowserType.isChrome() || RTCBrowserType.isReactNative()
+const browserSupported = RTCBrowserType.isChrome()
         || RTCBrowserType.isOpera() || RTCBrowserType.isFirefox()
         || RTCBrowserType.isNWJS() || RTCBrowserType.isElectron()
         || RTCBrowserType.isTemasysPluginUsed() || RTCBrowserType.isEdge();
