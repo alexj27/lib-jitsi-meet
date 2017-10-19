@@ -38,10 +38,10 @@ let isCallstatsLoaded = false;
 function loadCallStatsAPI(customScriptUrl) {
     if (!isCallstatsLoaded) {
         ScriptUtil.loadScript(
-                customScriptUrl ? customScriptUrl
-                    : 'https://api.callstats.io/static/callstats-ws.min.js',
-                /* async */ true,
-                /* prepend */ true);
+            customScriptUrl
+                || 'https://api.callstats.io/static/callstats-ws.min.js',
+            /* async */ true,
+            /* prepend */ true);
         isCallstatsLoaded = true;
     }
 
@@ -164,8 +164,11 @@ Statistics.prototype.startRemoteStats = function(peerconnection) {
 
     try {
         const rtpStats
-            = new RTPStats(peerconnection,
-                    Statistics.audioLevelsInterval, 2000, this.eventEmitter);
+            = new RTPStats(
+                peerconnection,
+                Statistics.audioLevelsInterval,
+                2000,
+                this.eventEmitter);
 
         rtpStats.start(Statistics.audioLevelsEnabled);
         this.rtpStatsMap.set(peerconnection.id, rtpStats);
@@ -315,8 +318,11 @@ Statistics.prototype.startCallStats = function(tpc, remoteUserID) {
         if (!CallStats.initBackend({
             callStatsID: this.options.callStatsID,
             callStatsSecret: this.options.callStatsSecret,
-            userName,
-            aliasName: this.options.callStatsAliasName
+            userName: this.options.swapUserNameAndAlias
+                ? this.options.callStatsAliasName : userName,
+            aliasName: this.options.swapUserNameAndAlias
+                ? userName : this.options.callStatsAliasName,
+            applicationName: this.options.applicationName
         })) {
 
             // Backend initialization failed bad

@@ -1,4 +1,5 @@
 /* global $, $pres, $iq, $msg, __filename, Strophe */
+
 import { getLogger } from 'jitsi-meet-logger';
 import GlobalOnErrorHandler from '../util/GlobalOnErrorHandler';
 import * as JitsiTranscriptionStatus from '../../JitsiTranscriptionStatus';
@@ -6,6 +7,7 @@ import Listenable from '../util/Listenable';
 import * as MediaType from '../../service/RTC/MediaType';
 import Moderator from './moderator';
 import Recorder from './recording';
+import Settings from '../settings/Settings';
 import XMPPEvents from '../../service/xmpp/XMPPEvents';
 
 const logger = getLogger(__filename);
@@ -194,6 +196,13 @@ export default class ChatRoom extends Listenable {
             'attributes': { xmlns: 'http://jitsi.org/jitmeet/user-agent' }
         });
 
+        if (options.enableStatsID) {
+            this.presMap.nodes.push({
+                'tagName': 'stats-id',
+                'value': Settings.callStatsUserName
+            });
+        }
+
         // We need to broadcast 'videomuted' status from the beginning, cause
         // Jicofo makes decisions based on that. Initialize it with 'false'
         // here.
@@ -310,16 +319,19 @@ export default class ChatRoom extends Listenable {
      *
      */
     discoRoomInfo() {
-      // https://xmpp.org/extensions/xep-0045.html#disco-roominfo
+        // https://xmpp.org/extensions/xep-0045.html#disco-roominfo
 
-        const getInfo = $iq({ type: 'get',
-            to: this.roomjid })
-        .c('query', { xmlns: Strophe.NS.DISCO_INFO });
+        const getInfo
+            = $iq({
+                type: 'get',
+                to: this.roomjid
+            })
+                .c('query', { xmlns: Strophe.NS.DISCO_INFO });
 
         this.connection.sendIQ(getInfo, result => {
             const locked
                 = $(result).find('>query>feature[var="muc_passwordprotected"]')
-                        .length
+                    .length
                     === 1;
 
             if (locked !== this.locked) {
@@ -437,6 +449,9 @@ export default class ChatRoom extends Listenable {
             case 'userId':
                 member.id = node.value;
                 break;
+            case 'stats-id':
+                member.statsID = node.value;
+                break;
             }
         }
 
@@ -473,7 +488,11 @@ export default class ChatRoom extends Listenable {
             } else {
                 this.eventEmitter.emit(
                     XMPPEvents.MUC_MEMBER_JOINED,
-                    from, member.nick, member.role, member.isHiddenDomain);
+                    from,
+                    member.nick,
+                    member.role,
+                    member.isHiddenDomain,
+                    member.statsID);
             }
 
             hasStatusUpdate = member.status !== undefined;
@@ -522,8 +541,10 @@ export default class ChatRoom extends Listenable {
             switch (node.tagName) {
             case 'nick':
                 if (!member.isFocus) {
-                    const displayName = this.xmpp.options.displayJids
-                            ? Strophe.getResourceFromJid(from) : member.nick;
+                    const displayName
+                        = this.xmpp.options.displayJids
+                            ? Strophe.getResourceFromJid(from)
+                            : member.nick;
 
                     if (displayName && displayName.length > 0) {
                         this.eventEmitter.emit(
@@ -712,9 +733,10 @@ export default class ChatRoom extends Listenable {
         if ($(pres).find('>x[xmlns="http://jabber.org/protocol/muc#user"]'
             + '>destroy').length) {
             let reason;
-            const reasonSelect = $(pres).find(
+            const reasonSelect
+                = $(pres).find(
                     '>x[xmlns="http://jabber.org/protocol/muc#user"]'
-                    + '>destroy>reason');
+                        + '>destroy>reason');
 
             if (reasonSelect.length) {
                 reason = reasonSelect.text();
@@ -729,18 +751,16 @@ export default class ChatRoom extends Listenable {
         // Status code 110 indicates that this notification is "self-presence".
         const isSelfPresence
             = $(pres)
-                    .find(
-                        '>x[xmlns="http://jabber.org/protocol/muc#user"]>'
-                            + 'status[code="110"]')
-                    .length
-                !== 0;
+                .find(
+                    '>x[xmlns="http://jabber.org/protocol/muc#user"]>'
+                        + 'status[code="110"]')
+                .length;
         const isKick
             = $(pres)
-                    .find(
-                        '>x[xmlns="http://jabber.org/protocol/muc#user"]'
-                            + '>status[code="307"]')
-                    .length
-                !== 0;
+                .find(
+                    '>x[xmlns="http://jabber.org/protocol/muc#user"]'
+                        + '>status[code="307"]')
+                .length;
         const membersKeys = Object.keys(this.members);
 
         if (!isSelfPresence) {
@@ -1098,10 +1118,12 @@ export default class ChatRoom extends Listenable {
      */
     addAudioInfoToPresence(mute) {
         this.removeFromPresence('audiomuted');
-        this.addToPresence('audiomuted',
-            { attributes:
-            { 'xmlns': 'http://jitsi.org/jitmeet/audio' },
-                value: mute.toString() });
+        this.addToPresence(
+            'audiomuted',
+            {
+                attributes: { 'xmlns': 'http://jitsi.org/jitmeet/audio' },
+                value: mute.toString()
+            });
     }
 
     /**
@@ -1125,10 +1147,12 @@ export default class ChatRoom extends Listenable {
      */
     addVideoInfoToPresence(mute) {
         this.removeFromPresence('videomuted');
-        this.addToPresence('videomuted',
-            { attributes:
-            { 'xmlns': 'http://jitsi.org/jitmeet/video' },
-                value: mute.toString() });
+        this.addToPresence(
+            'videomuted',
+            {
+                attributes: { 'xmlns': 'http://jitsi.org/jitmeet/video' },
+                value: mute.toString()
+            });
     }
 
     /**

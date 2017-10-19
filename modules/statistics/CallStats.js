@@ -278,8 +278,7 @@ export default class CallStats {
         const originalReportError = theBackend.reportError;
 
         /* eslint-disable max-params */
-        theBackend.reportError
-        = function(pc, cs, type, ...args) {
+        theBackend.reportError = function(pc, cs, type, ...args) {
             // Logs from the logger are submitted on the applicationLog event
             // "type". Logging the arguments on the logger will create endless
             // loop, because it will put all the logs to the logger queue again.
@@ -360,12 +359,24 @@ export default class CallStats {
             CallStats.callStatsID = options.callStatsID;
             CallStats.callStatsSecret = options.callStatsSecret;
 
+            let configParams;
+
+            if (options.applicationName) {
+                configParams = {
+                    applicationVersion:
+                        `${options.applicationName} (${
+                            RTCBrowserType.getBrowserName()})`
+                };
+            }
+
             // userID is generated or given by the origin server
             CallStats.backend.initialize(
                 CallStats.callStatsID,
                 CallStats.callStatsSecret,
                 CallStats.userID,
-                CallStats._initCallback);
+                CallStats._initCallback,
+                undefined,
+                configParams);
 
             return true;
         } catch (e) {
@@ -513,12 +524,19 @@ export default class CallStats {
     _addNewFabric() {
         logger.info('addNewFabric', this.remoteUserID);
         try {
+            const fabricAttributes = {
+                remoteEndpointType:
+                    this.tpc.isP2P
+                        ? CallStats.backend.endpointType.peer
+                        : CallStats.backend.endpointType.server
+            };
             const ret
                 = CallStats.backend.addNewFabric(
                     this.peerconnection,
                     this.remoteUserID,
                     CallStats.backend.fabricUsage.multiplex,
                     this.confID,
+                    fabricAttributes,
                     CallStats._addNewFabricCallback);
 
             this.hasFabric = true;

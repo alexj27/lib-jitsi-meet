@@ -25,6 +25,7 @@ import RTCEvents from '../../service/RTC/RTCEvents';
 import ortcRTCPeerConnection from './ortc/RTCPeerConnection';
 import screenObtainer from './ScreenObtainer';
 import SDPUtil from '../xmpp/SDPUtil';
+import Statistics from '../statistics/statistics';
 import VideoType from '../../service/RTC/VideoType';
 
 const logger = getLogger(__filename);
@@ -83,25 +84,26 @@ let rawEnumerateDevicesWithCallback;
  *
  */
 function initRawEnumerateDevicesWithCallback() {
-    rawEnumerateDevicesWithCallback = navigator.mediaDevices
-        && navigator.mediaDevices.enumerateDevices
-        ? function(callback) {
-            navigator.mediaDevices.enumerateDevices().then(
-                callback,
-                () => callback([]));
-        }
+    rawEnumerateDevicesWithCallback
+        = navigator.mediaDevices && navigator.mediaDevices.enumerateDevices
+            ? function(callback) {
+                navigator.mediaDevices.enumerateDevices().then(
+                    callback,
+                    () => callback([]));
+            }
 
-        // Safari:
-        // "ReferenceError: Can't find variable: MediaStreamTrack"
-        // when Temasys plugin is not installed yet, have to delay this call
-        // until WebRTC is ready.
-        : MediaStreamTrack && MediaStreamTrack.getSources
-        ? function(callback) {
-            MediaStreamTrack.getSources(
-                sources =>
-                    callback(sources.map(convertMediaStreamTrackSource)));
-        }
-        : undefined;
+            // Safari:
+            // "ReferenceError: Can't find variable: MediaStreamTrack" when
+            // Temasys plugin is not installed yet, have to delay this call
+            // until WebRTC is ready.
+            : MediaStreamTrack && MediaStreamTrack.getSources
+                ? function(callback) {
+                    MediaStreamTrack.getSources(
+                        sources =>
+                            callback(
+                                sources.map(convertMediaStreamTrackSource)));
+                }
+                : undefined;
 }
 
 // TODO: currently no browser supports 'devicechange' event even in nightly
@@ -120,10 +122,13 @@ let rtcReady = false;
 /**
  *
  * @param constraints
+ * @param isNewStyleConstraintsSupported
  * @param resolution
  */
 function setResolutionConstraints(
-    constraints, isNewStyleConstraintsSupported, resolution) {
+        constraints,
+        isNewStyleConstraintsSupported,
+        resolution) {
     if (Resolutions[resolution]) {
         if (isNewStyleConstraintsSupported) {
             constraints.video.width = {
@@ -371,15 +376,14 @@ function compareAvailableMediaDevices(newDevices) {
         return true;
     }
 
+    /* eslint-disable newline-per-chained-call */
+
     return (
-        newDevices
-                .map(mediaDeviceInfoToJSON)
-                .sort()
-                .join('')
+        newDevices.map(mediaDeviceInfoToJSON).sort().join('')
             !== currentlyAvailableMediaDevices
-                .map(mediaDeviceInfoToJSON)
-                .sort()
-                .join(''));
+                .map(mediaDeviceInfoToJSON).sort().join(''));
+
+    /* eslint-enable newline-per-chained-call */
 
     /**
      *
@@ -423,6 +427,32 @@ function pollForAvailableMediaDevices() {
 }
 
 /**
+ * Sends analytics event with the passed device list.
+ *
+ * @param {Array<MediaDeviceInfo>} deviceList - List with info about the
+ * available devices.
+ * @returns {void}
+ */
+function sendDeviceListToAnalytics(deviceList) {
+    const devicesPropsArray
+        = deviceList.map(
+            ({ deviceId, groupId, kind, label }) => {
+                // Filter the props of the device object.
+                return {
+                    deviceId,
+                    groupId,
+                    kind,
+                    label
+                };
+            });
+
+    Statistics.analytics.sendEvent(
+        'devices.deviceList', {
+            devices: devicesPropsArray
+        });
+}
+
+/**
  * Event handler for the 'devicechange' event.
  *
  * @param {MediaDeviceInfo[]} devices - list of media devices.
@@ -433,6 +463,8 @@ function onMediaDevicesListChanged(devicesReceived) {
     logger.info(
         'list of media devices has changed:',
         currentlyAvailableMediaDevices);
+
+    sendDeviceListToAnalytics(currentlyAvailableMediaDevices);
 
     const videoInputDevices
         = currentlyAvailableMediaDevices.filter(d => d.kind === 'videoinput');
@@ -581,9 +613,9 @@ function handleLocalStream(streams, resolution) {
                 }
             }
         } else {
-          // On other types of browser (e.g. Firefox) we choose (namely,
-          // obtainAudioAndVideoPermissions) to call getUserMedia per device
-          // (type).
+            // On other types of browser (e.g. Firefox) we choose (namely,
+            // obtainAudioAndVideoPermissions) to call getUserMedia per device
+            // (type).
             audioStream = streams.audio;
             videoStream = streams.video;
         }
@@ -691,7 +723,7 @@ class RTCUtils extends Listenable {
      *
      * @param options
      */
-    init(options) {
+    init(options = {}) {
         if (typeof options.disableAEC === 'boolean') {
             disableAEC = options.disableAEC;
             logger.info(`Disable AEC: ${disableAEC}`);
@@ -844,17 +876,41 @@ class RTCUtils extends Listenable {
                         { googSuspendBelowMinBitrate: true });
                 }
 
-                // There's no reason not to use this for p2p
-                this.p2pPcConstraints.optional.push({
-                    googSuspendBelowMinBitrate: true
-                });
+                /**
+                 * This option is used to enable the suspend video only for
+                 * part of the users on the P2P peer connection. The value of
+                 * the option is the ratio:
+                 * (users with suspended video enabled)/(all users).
+                 *
+                 * Note: The option is not documented because it is temporary
+                 * and only for internal testing purpose.
+                 *
+                 * @type {number}
+                 */
+                const forceP2PSuspendVideoRatio
+                    = (options.testing || {}).forceP2PSuspendVideoRatio;
+
+                // If <tt>forceP2PSuspendVideoRatio</tt> is invalid (not a
+                // number) fallback to the default behavior (enabled for every
+                // user).
+                if (typeof forceP2PSuspendVideoRatio !== 'number'
+                        || Math.random() < forceP2PSuspendVideoRatio) {
+                    logger.info(`Enable suspend video mode for p2p (ratio=${
+                        forceP2PSuspendVideoRatio})`);
+                    Statistics.analytics.addPermanentProperties({
+                        forceP2PSuspendVideo: true
+                    });
+                    this.p2pPcConstraints.optional.push({
+                        googSuspendBelowMinBitrate: true
+                    });
+                }
             } else if (RTCBrowserType.isEdge()) {
                 this.RTCPeerConnectionType = ortcRTCPeerConnection;
                 this.getUserMedia
                     = wrapGetUserMedia(
                         navigator.mediaDevices.getUserMedia.bind(
                             navigator.mediaDevices),
-                            true);
+                        true);
                 this.enumerateDevices = rawEnumerateDevicesWithCallback;
                 this.attachMediaStream
                     = wrapAttachMediaStream((element, stream) => {
@@ -1047,6 +1103,8 @@ class RTCUtils extends Listenable {
             };
 
             options.devices = options.devices || [ 'audio', 'video' ];
+            options.resolution = options.resolution || '720';
+
             if (!screenObtainer.isSupported()
                 && options.devices.indexOf('desktop') !== -1) {
                 reject(new Error('Desktop sharing is not supported!'));
@@ -1099,7 +1157,7 @@ class RTCUtils extends Listenable {
                         options.devices.indexOf('desktop'),
                         1);
                 }
-                options.resolution = options.resolution || '360';
+
                 if (options.devices.length) {
                     this.getUserMediaWithConstraints(
                         options.devices,
@@ -1245,8 +1303,8 @@ class RTCUtils extends Listenable {
 
             eventEmitter.addListener(RTCEvents.RTC_READY, listener);
 
-                // We have no failed event, so... it either resolves or nothing
-                // happens
+            // We have no failed event, so... it either resolves or nothing
+            // happens.
         });
 
     }
@@ -1457,6 +1515,9 @@ function onReady(options, GUM) {
         rawEnumerateDevicesWithCallback(ds => {
             currentlyAvailableMediaDevices = ds.splice(0);
 
+            logger.info('Available devices: ', currentlyAvailableMediaDevices);
+            sendDeviceListToAnalytics(currentlyAvailableMediaDevices);
+
             eventEmitter.emit(RTCEvents.DEVICE_LIST_AVAILABLE,
                 currentlyAvailableMediaDevices);
 
@@ -1499,10 +1560,12 @@ function wrapAttachMediaStream(origAttachMediaStream) {
                         reason: err
                     });
 
-                    logger.warn('Failed to set audio output device for the '
-                        + 'element. Default audio output device will be used '
-                        + 'instead',
-                        element, err);
+                    logger.warn(
+                        'Failed to set audio output device for the element.'
+                            + ' Default audio output device will be used'
+                            + ' instead',
+                        element,
+                        err);
                 });
         }
 

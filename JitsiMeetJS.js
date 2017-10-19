@@ -119,7 +119,7 @@ export default {
     },
     logLevels: Logger.levels,
     mediaDevices: JitsiMediaDevices,
-    analytics: null,
+    analytics: Statistics.analytics,
     init(options) {
         Statistics.init(options);
 
@@ -129,9 +129,8 @@ export default {
             window.connectionTimes = {};
         }
 
-        this.analytics = Statistics.analytics;
-        if (options.enableAnalyticsLogging === true) {
-            this.analytics.init(RTCBrowserType.getBrowserName());
+        if (options.enableAnalyticsLogging !== true) {
+            this.analytics.dispose();
         }
 
         if (options.enableWindowOnErrorHandler) {
@@ -355,7 +354,7 @@ export default {
                     Statistics.sendLog(JSON.stringify(logObject));
                     Statistics.analytics.sendEvent(
                         `getUserMedia.deviceNotFound.${
-                             error.gum.devices.join('.')}`);
+                            error.gum.devices.join('.')}`);
                 } else {
                     // Report gUM failed to the stats
                     Statistics.sendGetUserMediaFailed(error);
